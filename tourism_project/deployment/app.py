@@ -3,15 +3,15 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import mlflow
+import os # Import os to access environment variables
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 
 # Set MLflow tracking URI for model loading
-# For simplicity, we assume MLflow is set up to track locally or that the model URI is directly accessible.
-# In a real deployment, you might point this to a remote MLflow server or Hugging Face Model Hub.
-# mlflow.set_tracking_uri("http://your-mlflow-server:5000") # Uncomment and modify if using remote MLflow
+# Use environment variable to dynamically set the tracking URI
+mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI"))
 
 st.set_page_config(page_title="Tour Buyer Prediction App", layout="wide")
 
@@ -35,18 +35,19 @@ def load_model_and_preprocessor():
         # It is highly recommended to save the fitted preprocessor object itself via MLflow
         # and load it back. Reconstructing it like this is error-prone.
         sample_data_for_preprocessor = pd.DataFrame({
-            'Unnamed: 0': [0], 'Age': [30.0], 'CityTier': [1], 'DurationOfPitch': [10.0],
+            'CustomerID': [200000], 'Age': [30.0], 'CityTier': [1], 'DurationOfPitch': [10.0],
             'NumberOfPersonVisiting': [2], 'NumberOfFollowups': [3.0], 'PreferredPropertyStar': [3.0],
             'NumberOfTrips': [1.0], 'Passport': [0], 'PitchSatisfactionScore': [3], 'OwnCar': [1],
             'NumberOfChildrenVisiting': [0.0], 'MonthlyIncome': [20000.0],
             'TypeofContact': ['Self Enquiry'], 'Occupation': ['Salaried'], 'Gender': ['Male'],
-            'ProductPitched': ['Basic'], 'MaritalStatus': ['Married']
+            'ProductPitched': ['Basic'], 'MaritalStatus': ['Married'], 'Designation': ['Executive']
         })
 
-        numerical_cols = ['Unnamed: 0', 'Age', 'CityTier', 'DurationOfPitch', 'NumberOfPersonVisiting',
+        # Corrected: 'Unnamed: 0' removed, 'Designation' added to categorical_cols
+        numerical_cols = ['CustomerID', 'Age', 'CityTier', 'DurationOfPitch', 'NumberOfPersonVisiting',
                           'NumberOfFollowups', 'PreferredPropertyStar', 'NumberOfTrips', 'Passport',
                           'PitchSatisfactionScore', 'OwnCar', 'NumberOfChildrenVisiting', 'MonthlyIncome']
-        categorical_cols = ['TypeofContact', 'Occupation', 'Gender', 'ProductPitched', 'MaritalStatus']
+        categorical_cols = ['TypeofContact', 'Occupation', 'Gender', 'ProductPitched', 'MaritalStatus', 'Designation']
 
         numerical_transformer = Pipeline(steps=[
             ('imputer', SimpleImputer(strategy='median')),
@@ -72,9 +73,14 @@ def load_model_and_preprocessor():
         return model, preprocessor, numerical_cols, categorical_cols
     except Exception as e:
         st.error(f"Error loading model or preprocessor: {e}")
-        st.stop()
+        return None, None, None, None # Return None for all to avoid TypeError on unpack
 
 model, preprocessor, numerical_cols, categorical_cols = load_model_and_preprocessor()
+
+# Only proceed if model and preprocessor are loaded successfully
+if model is None or preprocessor is None:
+    st.warning("Model or preprocessor failed to load. Please check MLflow server and model registration.")
+    st.stop() # Stop Streamlit app if components are not loaded
 
 # --- Input Features ---
 st.sidebar.header("Customer Input Features")
@@ -98,11 +104,13 @@ def user_input_features():
     owncar = st.sidebar.selectbox('Owns Car?', [0, 1])
     numberofchildrenvisiting = st.sidebar.slider('NumberOf Children Visiting', 0, 5, 1)
     monthlyincome = st.sidebar.slider('Monthly Income', 10000, 100000, 30000)
+    designation = st.sidebar.selectbox('Designation', ['Executive', 'Manager', 'Senior Manager', 'AVP', 'VP', 'Director', 'Junior Executive', 'CEO', 'CFO', 'Chairman'])
 
-    # Dummy 'Unnamed: 0' as it was just an index in the original dataset, set to 0 for new predictions
-    unnamed_0 = 0
+    # Dummy 'CustomerID' as it was just an index in the original dataset, set to 0 for new predictions
+    customer_id = 200000 # Use a dummy ID, or remove from features if not used
 
-    data = {'Unnamed: 0': unnamed_0,
+    data = {
+            'CustomerID': customer_id,
             'Age': age,
             'TypeofContact': typeofcontact,
             'CityTier': citytier,
@@ -119,7 +127,8 @@ def user_input_features():
             'PitchSatisfactionScore': pitchsatisfactionscore,
             'OwnCar': owncar,
             'NumberOfChildrenVisiting': numberofchildrenvisiting,
-            'MonthlyIncome': monthlyincome
+            'MonthlyIncome': monthlyincome,
+            'Designation': designation
            }
     features = pd.DataFrame(data, index=[0])
     return features
@@ -141,10 +150,13 @@ if st.button('Predict'):
         processed_input = preprocessor.transform(input_df)
 
         # Get feature names after one-hot encoding for categorical columns
-        ohe_feature_names = preprocessor.named_transformers_['cat']['onehot'].get_feature_names_out(categorical_cols)
-        processed_feature_names = numerical_cols + list(ohe_feature_names)
+        # The get_feature_names_out method requires knowing the transformer's name (e.g., 'cat')
+        ohe_feature_names = preprocessor.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out(categorical_cols)
 
-        processed_input_df = pd.DataFrame(processed_input, columns=processed_feature_names, index=input_df.index)
+        # Construct the full list of processed feature names in the correct order
+        full_processed_feature_names = numerical_cols + list(ohe_feature_names)
+
+        processed_input_df = pd.DataFrame(processed_input, columns=full_processed_feature_names, index=input_df.index)
 
         prediction = model.predict(processed_input_df)
         prediction_proba = model.predict_proba(processed_input_df)

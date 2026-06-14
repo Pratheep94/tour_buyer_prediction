@@ -1,5 +1,6 @@
 # for data manipulation
 import pandas as pd
+import numpy as np # Import numpy for np.sqrt
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import make_column_transformer
 from sklearn.pipeline import make_pipeline
@@ -16,11 +17,14 @@ from huggingface_hub import login, HfApi, create_repo
 from huggingface_hub.utils import RepositoryNotFoundError, HfHubHTTPError
 import mlflow
 
-mlflow.set_tracking_uri("http://localhost:5000")
+# --- DIAGNOSTIC PRINT --- 
+print("Executing train.py (version with np.sqrt for RMSE)")
+# --- END DIAGNOSTIC PRINT ---
+
+mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5000")) # Use env var
 mlflow.set_experiment("mlops-training-experiment")
 
 api = HfApi()
-
 
 Xtrain_path = "hf://datasets/spmaverick/tour-buyer-prediction/Xtrain.csv"
 Xtest_path = "hf://datasets/spmaverick/tour-buyer-prediction/Xtest.csv"
@@ -33,8 +37,10 @@ ytrain = pd.read_csv(ytrain_path)
 ytest = pd.read_csv(ytest_path)
 
 
-# Define numeric and categorical features
-# Corrected: Get numeric features from X (which does not contain target_col)
+# Define numeric and categorical features (consistent with app.py's ColumnTransformer)
+# Corrected: Removed Unnamed:0 from numeric_features as it's dropped during data prep
+# Corrected: MonthlyIncome should be treated as numeric and not label encoded here if going to StandardScaler
+# Corrected: Designation added to categorical_features to be handled by OneHotEncoder
 numeric_features = ['CustomerID', 'Age', 'CityTier', 'DurationOfPitch', 'NumberOfPersonVisiting', 'NumberOfFollowups', 'PreferredPropertyStar', 'NumberOfTrips', 'Passport', 'PitchSatisfactionScore', 'OwnCar', 'NumberOfChildrenVisiting', 'MonthlyIncome']
 
 categorical_features = [
@@ -87,8 +93,8 @@ with mlflow.start_run():
     y_pred_test = best_model.predict(Xtest)
 
     # Metrics
-    train_rmse = mean_squared_error(ytrain, y_pred_train, squared=False)
-    test_rmse = mean_squared_error(ytest, y_pred_test, squared=False)
+    train_rmse = np.sqrt(mean_squared_error(ytrain, y_pred_train))
+    test_rmse = np.sqrt(mean_squared_error(ytest, y_pred_test))
 
     train_mae = mean_absolute_error(ytrain, y_pred_train)
     test_mae = mean_absolute_error(ytest, y_pred_test)
@@ -110,12 +116,18 @@ with mlflow.start_run():
     model_path = "best_cust_income_model_v1.joblib"
     joblib.dump(best_model, model_path)
 
-    # Log the model artifact
-    mlflow.log_artifact(model_path, artifact_path="model")
-    print(f"Model saved as artifact at: {model_path}")
+    # Log the model artifact and register it
+    mlflow.sklearn.log_model(
+        sk_model=best_model,
+        artifact_path="best_model",
+        registered_model_name="TourBuyerPredictionRFC", # Register the model with this name
+        input_example=Xtrain.head(2),
+        signature=mlflow.models.infer_signature(Xtrain, ytrain)
+    )
+    print("Model saved as artifact and registered as 'TourBuyerPredictionRFC'.")
 
     # Upload to Hugging Face
-    repo_id = "spmaverick/tour-buyer-prediction/best_cust_income_model_v1"
+    repo_id = "spmaverick/tour-buyer-prediction"
     repo_type = "model"
 
     # Step 1: Check if the space exists
@@ -127,7 +139,6 @@ with mlflow.start_run():
         create_repo(repo_id=repo_id, repo_type=repo_type, private=False)
         print(f"Space '{repo_id}' created.")
 
-    # create_repo("churn-model", repo_type="model", private=False)
     api.upload_file(
         path_or_fileobj="best_cust_income_model_v1.joblib",
         path_in_repo="best_cust_income_model_v1.joblib",
