@@ -21,7 +21,9 @@ import mlflow
 print("Executing train.py (version with np.sqrt for RMSE)")
 # --- END DIAGNOSTIC PRINT ---
 
-mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5000")) # Use env var
+tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
+if tracking_uri:
+    mlflow.set_tracking_uri(tracking_uri)
 mlflow.set_experiment("mlops-training-experiment")
 
 api = HfApi()
