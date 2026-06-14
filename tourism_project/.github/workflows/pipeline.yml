@@ -1,0 +1,75 @@
+name: Tourism Project Pipeline
+
+on:
+  push:
+    branches:
+      - main  # Automatically triggers on push to the main branch
+
+jobs:
+
+  register-dataset:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Dependencies
+        run: |
+          pip install pandas huggingface_hub
+          pip install -U "huggingface_hub[cli]"
+      - name: Upload Dataset to Hugging Face Hub
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python tourism_project/model_building/data_register.py
+
+  data-prep:
+    needs: register-dataset
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Dependencies
+        run: |
+          pip install pandas scikit-learn huggingface_hub
+          pip install -U "huggingface_hub[cli]"
+      - name: Run Data Preparation
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python tourism_project/model_building/prep.py
+
+
+  model-traning:
+    needs: data-prep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Dependencies
+        run: |
+          pip install pandas scikit-learn mlflow xgboost
+          pip install -U "huggingface_hub[cli]"
+      - name: Model Building
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          mlflow set_tracking_uri "$MLFLOW_TRACKING_URI"
+          mlflow set_experiment "MLOps_CICD_experiment"
+          python tourism_project/model_building/train.py
+
+
+  deploy-hosting:
+    runs-on: ubuntu-latest
+    needs: [model-traning,data-prep,register-dataset]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Dependencies
+        run: |
+          pip install huggingface_hub
+          pip install -U "huggingface_hub[cli]"
+      - name: Push files to Frontend Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          export HF_HOME=$(pwd)
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+          python -c "from huggingface_hub import HfApi; api = HfApi(); api.upload_folder(folder_path='tourism_project/deployment', repo_id='spmaverick/tour-buyer-prediction', repo_type='space', commit_message='Deploy Streamlit app')"
