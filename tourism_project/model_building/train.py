@@ -115,7 +115,7 @@ with mlflow.start_run():
     })
 
     # Save the model locally
-    model_path = "best_cust_income_model_v1.joblib"
+    model_path = "TourBuyerPredictionRFC.joblib"
     joblib.dump(best_model, model_path)
 
     # Log the model artifact and register it
@@ -142,8 +142,8 @@ with mlflow.start_run():
         print(f"Space '{repo_id}' created.")
 
     api.upload_file(
-        path_or_fileobj="best_cust_income_model_v1.joblib",
-        path_in_repo="best_cust_income_model_v1.joblib",
+        path_or_fileobj="TourBuyerPredictionRFC.joblib",
+        path_in_repo="TourBuyerPredictionRFC.joblib",
         repo_id=repo_id,
         repo_type=repo_type,
     )
