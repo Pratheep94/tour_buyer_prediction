@@ -27,9 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Install Dependencies
-        run: |
-          pip install pandas scikit-learn huggingface_hub
-          pip install -U "huggingface_hub[cli]"
+        run: pip install -r tourism_project/requirements.txt
       - name: Run Data Preparation
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -43,15 +41,15 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Install Dependencies
+        run: pip install -r tourism_project/requirements.txt
+      - name: Start MLflow Server
         run: |
-          pip install pandas scikit-learn mlflow xgboost
-          pip install -U "huggingface_hub[cli]"
+          nohup mlflow ui --host 0.0.0.0 --port 5000 &  # Run MLflow UI in the background
+          sleep 5  # Wait for a moment to let the server starts
       - name: Model Building
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          mlflow set_tracking_uri "$MLFLOW_TRACKING_URI"
-          mlflow set_experiment "MLOps_CICD_experiment"
           python tourism_project/model_building/train.py
 
 
@@ -61,9 +59,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Install Dependencies
-        run: |
-          pip install huggingface_hub
-          pip install -U "huggingface_hub[cli]"
+        run: pip install -r tourism_project/requirements.txt
       - name: Push files to Frontend Hugging Face Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
